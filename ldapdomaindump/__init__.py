@@ -26,7 +26,7 @@ import sys, os, re, codecs, json, argparse, getpass, base64
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 import ldap3
-from ldap3 import Server, Connection, SIMPLE, SYNC, ALL, SASL, NTLM
+from ldap3 import Server, Connection, SIMPLE, SYNC, ALL, SASL, NTLM, GSSAPI
 from ldap3.core.exceptions import LDAPKeyError, LDAPAttributeError, LDAPCursorError, LDAPInvalidDnError
 from ldap3.abstract import attribute, attrDef
 from ldap3.utils import dn
@@ -876,6 +876,7 @@ def main():
     parser.add_argument("-u", "--user", type=str, metavar='USERNAME', help="DOMAIN\\username for authentication, leave empty for anonymous authentication")
     parser.add_argument("-p", "--password", type=str, metavar='PASSWORD', help="Password or LM:NTLM hash, will prompt if not specified")
     parser.add_argument("-at", "--authtype", type=str, choices=['NTLM', 'SIMPLE'], default='NTLM', help="Authentication type (NTLM or SIMPLE, default: NTLM)")
+    parser.add_argument("-k", "--kerberos", action='store_true', help="Use Kerberos authentication (uses system ticket)")
 
     #Output parameters
     outputgroup = parser.add_argument_group("Output options")
@@ -924,7 +925,13 @@ def main():
 
     #Prompt for password if not set
     authentication = None
-    if args.user is not None:
+    if args.kerberos:
+        # Configure Kerberos authentication
+        authentication = SASL 
+        sasl_mechanism = 'GSSAPI'
+        args.user = None
+        args.password = None
+    elif args.user is not None:
         if args.authtype == 'SIMPLE':
             authentication = 'SIMPLE'
         else:
@@ -940,7 +947,11 @@ def main():
     s = Server(args.host, get_info=ALL)
     log_info('Connecting to host...')
 
-    c = Connection(s, user=args.user, password=args.password, authentication=authentication)
+    if args.kerberos:
+        c = Connection(s, authentication=authentication, sasl_mechanism=sasl_mechanism)
+    else:
+        c = Connection(s, user=args.user, password=args.password, authentication=authentication)
+    
     log_info('Binding to host')
     # perform the Bind operation
     if not c.bind():
